@@ -1,27 +1,25 @@
-let firebasePromise = null;
+/* =============================================
+   NOSTAGAMES - MAIN ENGINE v9.0 (Hybrid Hydration + Smart Diff)
+   المعمارية الهجينة: Server Snapshot + Firebase Live Sync
+   ============================================= */
 
-function getFirebase() {
-    if (!firebasePromise) {
-        firebasePromise = Promise.all([
-            import("https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js"),
-            import("https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js")
-        ]).then(([{ initializeApp }, { getDatabase, ref, get }]) => {
-            const config = {
-                apiKey: "AIzaSyBjy1mH-Mjikc5aiX_oI2uoGHuI0Y1ZptI",
-                authDomain: "n-core-nostagames.firebaseapp.com",
-                databaseURL: "https://n-core-nostagames-default-rtdb.firebaseio.com",
-                projectId: "n-core-nostagames",
-                storageBucket: "n-core-nostagames.firebasestorage.app",
-                messagingSenderId: "705596610155",
-                appId: "1:705596610155:web:8c076439331d4ff604c32e"
-            };
-            const app = initializeApp(config);
-            return { db: getDatabase(app), ref, get };
-        });
-    }
-    return firebasePromise;
-}
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import { getDatabase, ref, get } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
 
+const firebaseConfig = {
+    apiKey: "AIzaSyBjy1mH-Mjikc5aiX_oI2uoGHuI0Y1ZptI",
+    authDomain: "n-core-nostagames.firebaseapp.com",
+    databaseURL: "https://n-core-nostagames-default-rtdb.firebaseio.com",
+    projectId: "n-core-nostagames",
+    storageBucket: "n-core-nostagames.firebasestorage.app",
+    messagingSenderId: "705596610155",
+    appId: "1:705596610155:web:8c076439331d4ff604c32e"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// window.gamesDatabase قد تكون مملوءة بالفعل من build.js (Server Snapshot)
 window.gamesDatabase = window.gamesDatabase || [];
 window.secretGames = { games: [] };
 
@@ -38,10 +36,15 @@ document.addEventListener("DOMContentLoaded", () => {
     initBackToTop();
     initGoogleTranslate();
     
+    // ── إضافة AdBlock watcher والتفاعل الأول ──
     startAdWatcher();
     initFirstInteractionCheck();
 
+    // ==============================
+    // الترطيب الأولي (Initial Hydration)
+    // ==============================
     if (window.__serverSnapshot && window.gamesDatabase.length > 0) {
+        // البيانات جاهزة من الـ Server Snapshot — عرضها فوراً
         console.log(`[NostGames] ⚡ Hydrating from server snapshot: ${window.gamesDatabase.length} games`);
         renderGames();
         injectSEOSchema();
@@ -49,30 +52,40 @@ document.addEventListener("DOMContentLoaded", () => {
         initCarousel();
         initSearch();
         initRandomGame();
+
+        // مزامنة صامتة في الخلفية للألعاب الجديدة
         silentSyncWithFirebase();
     } else {
+        // لا يوجد snapshot (أول نشر أو بيئة تطوير) — الجلب المباشر
         console.log('[NostGames] No server snapshot found, fetching from Firebase directly...');
         fetchGamesFromFirebase();
     }
 });
 
+/* =============================================
+   المزامنة الصامتة (Silent Sync + Diff & Merge)
+   ============================================= */
 async function silentSyncWithFirebase() {
     try {
-        const { db, ref, get } = await getFirebase();
         const gamesRef = ref(db, 'games');
         const snapshot = await get(gamesRef);
 
         if (!snapshot.exists()) return;
 
         const data = snapshot.val();
+
+        // بناء Set من الـ IDs الموجودة مسبقاً في الـ snapshot
         const existingIds = new Set(window.gamesDatabase.map(g => g.id));
         let newGamesCount = 0;
 
         for (const key in data) {
             const game = data[key];
             if (!game.downloadUrl || game.downloadUrl.trim() === "") continue;
+
+            // تجاهل الألعاب الموجودة بالفعل
             if (existingIds.has(key)) continue;
 
+            // لعبة جديدة لم تكن في الـ snapshot!
             const newGame = {
                 id: key,
                 title: game.name || "بدون اسم",
@@ -89,11 +102,14 @@ async function silentSyncWithFirebase() {
             window.gamesDatabase.push(newGame);
             existingIds.add(key);
             newGamesCount++;
+
+            // حقن بطاقة اللعبة الجديدة ديناميكياً في الـ Grid
             injectNewGameCard(newGame);
         }
 
         if (newGamesCount > 0) {
             console.log(`[NostGames] 🆕 Silent sync: added ${newGamesCount} new game(s) from Firebase`);
+            // تحديث محرك البحث بالألعاب الجديدة
             initSearch();
             initRandomGame();
         } else {
@@ -101,13 +117,19 @@ async function silentSyncWithFirebase() {
         }
 
     } catch (error) {
+        // فشل الـ sync الصامت لا يؤثر على الموقع
         console.warn('[NostGames] Silent sync failed (non-critical):', error.message);
     }
 }
 
+/* =============================================
+   الحقن الديناميكي للعبة الجديدة
+   ============================================= */
 function injectNewGameCard(game) {
     const grid = document.getElementById('games-grid');
     if (!grid) return;
+
+    // التأكد من عدم وجود البطاقة بالفعل (guard)
     if (grid.querySelector(`[data-id="${game.id}"]`)) return;
 
     const card = buildGameCard(game);
@@ -115,12 +137,14 @@ function injectNewGameCard(game) {
     setTimeout(() => { if (card.parentNode) card.classList.add('visible'); }, 100);
 }
 
+/* =============================================
+   الجلب المباشر من Firebase (Fallback بدون Snapshot)
+   ============================================= */
 async function fetchGamesFromFirebase() {
     const grid = document.getElementById('games-grid');
     if (grid) grid.innerHTML = '<div class="pixel-loading-text" style="text-align:center;width:100%;padding:20px;color:#f1c40f;">جاري تحميل الألعاب...</div>';
 
     try {
-        const { db, ref, get } = await getFirebase();
         const gamesRef = ref(db, 'games');
         const snapshot = await get(gamesRef);
 
@@ -161,6 +185,9 @@ async function fetchGamesFromFirebase() {
     }
 }
 
+/* =============================================
+   بناء بطاقة لعبة واحدة (مشترك بين render و inject)
+   ============================================= */
 function buildGameCard(game, idx = 0) {
     const card = document.createElement('div');
     card.className = 'game-card';
@@ -189,6 +216,9 @@ function buildGameCard(game, idx = 0) {
     return card;
 }
 
+/* =============================================
+   عرض الألعاب في الـ Grid
+   ============================================= */
 function renderGames(filterText = '') {
     const grid = document.getElementById('games-grid');
     if (!grid) return;
@@ -208,6 +238,9 @@ function renderGames(filterText = '') {
     });
 }
 
+/* =============================================
+   POPUP MODAL — وسط الشاشة مع Blur
+   ============================================= */
 function showGamePanel(game) {
     document.getElementById('game-panel')?.remove();
 
@@ -261,6 +294,7 @@ function showGamePanel(game) {
     panel.addEventListener('click', e => { if (e.target === panel) { closePanel(); document.removeEventListener('keydown', onKey); } });
     document.getElementById('panel-close-btn').onclick = closePanel;
     document.getElementById('panel-play-btn').onclick = () => {
+        // ← التحقق من AdBlock فقط عند الضغط على ابدأ اللعبة
         showAdBlockWall(() => {
             closePanel();
             setTimeout(() => openGame(game), 260);
@@ -270,6 +304,12 @@ function showGamePanel(game) {
     requestAnimationFrame(() => panel.classList.add('panel-visible'));
 }
 
+/* =============================================
+   ADBLOCK — يعمل فقط عند الضغط على أزرار حساسة
+   عناكب جوجل تتصفح بحرية كاملة ✅
+   ============================================= */
+
+// ── كائن الترجمات (20 لغة) ──
 const AB_LANGS = {
     ar: { title: "⚠️ تم اكتشاف مانع الإعلانات", body: "الإعلانات هي المصدر الوحيد لاستمرار الموقع مجاناً. يرجى تعطيل مانع الإعلانات للمتابعة.", note: "* الموقع مجاني 100%، الإعلانات فقط لدعم التطوير", btn: "✅ عطّلته، متابعة", steps: ["1. افتح إضافة AdBlock", "2. اختر 'تعطيل في هذا الموقع'", "3. اضغط زر المتابعة"] },
     en: { title: "⚠️ AdBlock Detected", body: "Ads are the only way to keep this site free. Please disable your ad blocker to continue.", note: "* This site is 100% free, ads only support development", btn: "✅ Disabled, Continue", steps: ["1. Open AdBlock extension", "2. Choose 'Disable on this site'", "3. Click continue button"] },
@@ -282,7 +322,7 @@ const AB_LANGS = {
     zh: { title: "⚠️ 检测到广告拦截器", body: "广告是保持本网站免费的唯一方式。请禁用您的广告拦截器。", note: "* 本网站100%免费，广告仅用于支持开发", btn: "✅ 已禁用，继续", steps: ["1. 打开AdBlock扩展", "2. 选择'在此网站上禁用'", "3. 点击继续按钮"] },
     ja: { title: "⚠️ 広告ブロッカーを検出しました", body: "広告はこのサイトを無料で維持する唯一の方法です。広告ブロッカーを無効にしてください。", note: "* このサイトは100%無料です。広告は開発支援のためです", btn: "✅ 無効にしました、続行", steps: ["1. AdBlockを開く", "2. 'このサイトで無効にする'を選択", "3. 続行ボタンをクリック"] },
     ko: { title: "⚠️ 광고 차단기 감지됨", body: "광고는 이 사이트를 무료로 유지하는 유일한 방법입니다. 광고 차단기를 비활성화하세요.", note: "* 이 사이트는 100% 무료입니다. 광고는 개발 지원용입니다", btn: "✅ 비활성화됨, 계속", steps: ["1. AdBlock 열기", "2. '이 사이트에서 비활성화' 선택", "3. 계속 버튼 클릭"] },
-    hi: { title: "⚠️ विज्ञापन अवरोधक का पता चला", body: "विज्ञापन इस साइट को मुफ्त रखने का एकमात्र तरीका है। कृपया अपना अवरोधक अक्षम करें。", note: "* साइट 100% मुफ्त है, विज्ञापन केवल विकास के लिए", btn: "✅ अक्षम किया, जारी रखें", steps: ["1. AdBlock खोलें", "2. 'इस साइट पर अक्षम करें' चुनें", "3. जारी रखें बटन दबाएं"] },
+    hi: { title: "⚠️ विज्ञापन अवरोधक का पता चला", body: "विज्ञापन इस साइट को मुफ्त रखने का एकमात्र तरीका है। कृपया अपना अवरोधक अक्षम करें।", note: "* साइट 100% मुफ्त है, विज्ञापन केवल विकास के लिए", btn: "✅ अक्षम किया, जारी रखें", steps: ["1. AdBlock खोलें", "2. 'इस साइट पर अक्षम करें' चुनें", "3. जारी रखें बटन दबाएं"] },
     tr: { title: "⚠️ Reklam Engelleyici Algılandı", body: "Reklamlar, bu sitenin ücretsiz kalmasının tek yoludur. Lütfen reklam engelleyicinizi devre dışı bırakın.", note: "* Site %100 ücretsizdir, reklamlar sadece geliştirme içindir", btn: "✅ Devre Dışı, Devam Et", steps: ["1. AdBlock'u açın", "2. 'Bu sitede devre dışı bırak' seçin", "3. Devam Et düğmesine tıklayın"] },
     nl: { title: "⚠️ AdBlock gedetecteerd", body: "Advertenties zijn de enige manier om deze site gratis te houden. Schakel uw adblocker uit.", note: "* Site 100% gratis, advertenties alleen voor ontwikkeling", btn: "✅ Uitgeschakeld, Doorgaan", steps: ["1. Open AdBlock", "2. Kies 'Uitschakelen op deze site'", "3. Klik op Doorgaan"] },
     sv: { title: "⚠️ AdBlock upptäckt", body: "Annonser är det enda sättet att hålla denna sida gratis. Vänligen inaktivera din annonsblockerare.", note: "* Webbplatsen är 100% gratis, annonser endast för utveckling", btn: "✅ Inaktiverad, Fortsätt", steps: ["1. Öppna AdBlock", "2. Välj 'Inaktivera på denna webbplats'", "3. Klicka på Fortsätt"] },
@@ -310,14 +350,16 @@ function startAdWatcher() {
             stopAdWatcher(); 
             showAdWallUI(); 
         }
-    }, 20000);
+    }, 20000); // كل 20 ثانية
 }
 
+// ── تحديد لغة المستخدم ──
 function detectLang() {
     const lang = (navigator.language || 'en').split('-')[0].toLowerCase();
     return AB_LANGS[lang] ? lang : 'en';
 }
 
+// ── تحديث نصوص الجدار حسب اللغة ──
 function localizeAdWall() {
     const t    = AB_LANGS[detectLang()];
     const wall = document.getElementById('adblock-wall');
@@ -341,6 +383,7 @@ function localizeAdWall() {
     wall.style.direction = rtl.includes(detectLang()) ? 'rtl' : 'ltr';
 }
 
+// ── عرض جدار AdBlock ──
 function showAdWallUI() {
     localizeAdWall();
     const wall = document.getElementById('adblock-wall');
@@ -357,6 +400,7 @@ function showAdWallUI() {
     newBtn.addEventListener('click', () => location.reload());
 }
 
+// ── الكشف عند أول تفاعل فقط ──
 function initFirstInteractionCheck() {
     const isBot = /googlebot|bingbot|yandex|duckduckbot|slurp|baiduspider/i.test(navigator.userAgent);
     if (isBot) return;
@@ -372,6 +416,7 @@ function initFirstInteractionCheck() {
 }
 
 async function checkAdBlock() {
+    // طريقة 1: فحص عناصر الـ bait في DOM
     const bait1 = document.getElementById('ab-bait1');
     const bait2 = document.getElementById('ab-bait2');
     const domBlocked =
@@ -384,25 +429,30 @@ async function checkAdBlock() {
 
     if (domBlocked) return true;
 
+    // طريقة 2: محاولة جلب ملف إعلاني معروف
     try {
         await fetch(
             'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js',
             { method: 'HEAD', mode: 'no-cors', cache: 'no-store' }
         );
-        return false;
+        return false; // نجح الطلب — لا يوجد مانع
     } catch (e) {
-        return true;
+        return true;  // فشل الطلب — يوجد مانع
     }
 }
 
 async function showAdBlockWall(onPass) {
+    // بوتات محركات البحث — تمرّ مباشرة
     const isBot = /googlebot|bingbot|yandex|duckduckbot|slurp|baiduspider|facebot|ia_archiver/i.test(navigator.userAgent);
     if (isBot) { onPass(); return; }
 
+    // فحص جديد في كل مرة بدون cache
     const blocked = await checkAdBlock();
     if (!blocked) { onPass(); return; }
 
+    // يوجد مانع — أظهر الجدار
     showAdWallUI();
+    // لا نستدعي onPass() لأننا منعنا الوصول
 }
 
 function initDownloadBtns() {
@@ -412,6 +462,7 @@ function initDownloadBtns() {
         if (!btn) return;
         btn.addEventListener('click', (e) => {
             e.preventDefault();
+            // ← التحقق من AdBlock فقط عند الضغط على التحميل
             showAdBlockWall(() => {
                 if (typeof NPCSystem !== 'undefined') NPCSystem.onDownloadClick();
                 window.location.href = APK_URL;
@@ -446,6 +497,7 @@ function initCounter() {
 function initSearch() {
     const searchInput = document.getElementById('search-games');
     if (!searchInput) return;
+    // إزالة المستمع القديم قبل إضافة جديد
     const newInput = searchInput.cloneNode(true);
     searchInput.parentNode.replaceChild(newInput, searchInput);
     let timeout;
@@ -458,6 +510,7 @@ function initSearch() {
 function initRandomGame() {
     const btn = document.getElementById('random-game-btn');
     if (!btn) return;
+    // إزالة المستمع القديم
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
     newBtn.addEventListener('click', () => {
@@ -526,6 +579,7 @@ function initBackToTop() {
 }
 
 function initGoogleTranslate() {
+    // إشعار تغيير اللغة
     const userLang = (navigator.language || 'ar').split('-')[0].toLowerCase();
     const langNames = {
         en:'🇺🇸 English', fr:'🇫🇷 Français', es:'🇪🇸 Español',
@@ -537,11 +591,13 @@ function initGoogleTranslate() {
         vi:'🇻🇳 Tiếng Việt'
     };
 
+    // لا نعرض الإشعار إذا كانت اللغة العربية
     if (userLang === 'ar') return;
 
     const langName = langNames[userLang];
     if (!langName) return;
 
+    // إشعار بتصميم بيكسلي
     const toast = document.createElement('div');
     toast.id = 'lang-toast';
     toast.textContent = `🌐 تم تغيير اللغة إلى ${langName}`;
@@ -566,8 +622,11 @@ function initGoogleTranslate() {
     `;
     document.body.appendChild(toast);
 
+    // إخفاء الإشعار بعد 4 ثوانٍ
     setTimeout(() => { toast.style.opacity = '0'; }, 4000);
     setTimeout(() => { toast.remove(); }, 4500);
+
+    // إزالة كود الإخفاء القسري لشريط الترجمة من هنا حتى يتمكن الزائر من استخدامه
 }
 
 function showPixelLoadingBar(onComplete) {
@@ -592,6 +651,9 @@ function showPixelLoadingBar(onComplete) {
     }, 50);
 }
 
+/* =============================================
+   KEYBOARD EVENT SIMULATOR
+   ============================================= */
 const KEY_DICT = {
     'A':{code:65,key:'a',codeStr:'KeyA'},'B':{code:66,key:'b',codeStr:'KeyB'},
     'C':{code:67,key:'c',codeStr:'KeyC'},'D':{code:68,key:'d',codeStr:'KeyD'},
@@ -626,16 +688,23 @@ function triggerRuffleKeyEvent(type, keyName) {
     if (rufflePlayer) rufflePlayer.dispatchEvent(event);
 }
 
+/* =============================================
+   SMART CONTROLS v2 — يقرأ المفاتيح من Firebase فقط
+   Joystick ثابت يسار — أزرار أكشن مصطفة يمين
+   ============================================= */
 let currentEditTarget = null;
 let controlsEditMode  = false;
 
+// الترتيب الافتراضي الذكي للأزرار (يمين — مصطفة عموديًا)
 const DEFAULT_BTN_SIZE = 62;
 const DEFAULT_JOY_SIZE = 130;
 
 function calcDefaultLayout(actionKeys) {
     const layout = {};
+    // Joystick: يسار وسط-أسفل
     layout['JOYSTICK'] = { x: 3, y: 55, size: DEFAULT_JOY_SIZE };
 
+    // أزرار الأكشن: عمود يمين مرتب
     const total  = actionKeys.length;
     const startY = total <= 2 ? 55 : 40;
     const step   = total <= 4 ? 16 : 12;
@@ -652,11 +721,12 @@ function calcDefaultLayout(actionKeys) {
 function renderSmartControls(gameId, controlsData, container) {
     if (!controlsData) return;
 
+    // p1 قد يكون مصفوفة (من build.js الجديد) أو كائن (من Firebase مباشرة)
     let p1Keys = [];
     if (Array.isArray(controlsData.p1)) {
-        p1Keys = controlsData.p1;                                      
+        p1Keys = controlsData.p1;                                      // ['JOYSTICK','A','S']
     } else if (controlsData.p1 && typeof controlsData.p1 === 'object') {
-        p1Keys = Object.keys(controlsData.p1);                         
+        p1Keys = Object.keys(controlsData.p1);                         // من Firebase القديم
     }
 
     const useWasd    = controlsData.wasd === true;
@@ -665,10 +735,12 @@ function renderSmartControls(gameId, controlsData, container) {
 
     if (!hasJoystick && actionKeys.length === 0) return;
 
+    /* ── wrapper الرئيسي ── */
     const wrapper = document.createElement('div');
     wrapper.id = 'smart-controls-wrapper';
     wrapper.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:9999;direction:ltr;overflow:hidden;';
 
+    /* ── شريط الأدوات ── */
     const toolbar = document.createElement('div');
     toolbar.id    = 'controls-toolbar';
     toolbar.style.cssText = [
@@ -695,21 +767,25 @@ function renderSmartControls(gameId, controlsData, container) {
     const saveBtn    = mkTbBtn('💾', 'حفظ');
     const resetBtn   = mkTbBtn('↩️', 'إعادة الضبط');
 
+    // نخفي أزرار التعديل حتى وضع التحرير
     [plusBtn, minusBtn, saveBtn, resetBtn].forEach(b => b.style.display = 'none');
     [flipBtn, editBtn, plusBtn, minusBtn, saveBtn, resetBtn].forEach(b => toolbar.appendChild(b));
     wrapper.appendChild(toolbar);
 
+    /* ── حاوية العناصر ── */
     const elContainer = document.createElement('div');
     elContainer.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
     wrapper.appendChild(elContainer);
     container.appendChild(wrapper);
 
+    /* ── تحميل الـ layout (من localStorage أو الحساب الافتراضي) ── */
     let layout = {};
     try { layout = JSON.parse(localStorage.getItem('nosta_ctrls_' + gameId)) || {}; } catch(e) {}
     if (!Object.keys(layout).length) {
         layout = calcDefaultLayout(actionKeys);
     }
 
+    /* ── إنشاء عناصر التحكم ── */
     const ctrlEls = [];
 
     if (hasJoystick) {
@@ -730,15 +806,17 @@ function renderSmartControls(gameId, controlsData, container) {
         ctrlEls.push(btn);
     });
 
+    /* ── قلب الجانبين ── */
     flipBtn.onclick = () => {
         ctrlEls.forEach(el => {
-            const lp  = parseFloat(el.style.left);       
+            const lp  = parseFloat(el.style.left);       // نسبة مئوية
             const sw  = parseFloat(el.style.width);
             const swP = sw / window.innerWidth * 100;
             el.style.left = Math.max(0, 100 - lp - swP) + '%';
         });
     };
 
+    /* ── وضع التحرير ── */
     editBtn.onclick = () => {
         controlsEditMode = true;
         editBtn.style.color = '#f1c40f';
@@ -751,6 +829,7 @@ function renderSmartControls(gameId, controlsData, container) {
         });
     };
 
+    /* ── حفظ ── */
     saveBtn.onclick = () => {
         controlsEditMode = false;
         currentEditTarget = null;
@@ -770,16 +849,19 @@ function renderSmartControls(gameId, controlsData, container) {
         localStorage.setItem('nosta_ctrls_' + gameId, JSON.stringify(saved));
     };
 
+    /* ── تكبير/تصغير العنصر المحدد ── */
     plusBtn.onclick  = () => resizeTarget(+8);
     minusBtn.onclick = () => resizeTarget(-8);
     function resizeTarget(delta) {
         if (!currentEditTarget) return;
         const s = Math.max(36, parseFloat(currentEditTarget.style.width) + delta);
         currentEditTarget.style.width = currentEditTarget.style.height = s + 'px';
+        // تحديث font-size زر الأكشن
         const lbl = currentEditTarget.querySelector('.ctrl-key-label');
         if (lbl) lbl.style.fontSize = Math.max(10, s * 0.3) + 'px';
     }
 
+    /* ── إعادة ضبط الـ layout ── */
     resetBtn.onclick = () => {
         localStorage.removeItem('nosta_ctrls_' + gameId);
         const fresh = calcDefaultLayout(actionKeys);
@@ -790,6 +872,7 @@ function renderSmartControls(gameId, controlsData, container) {
         });
     };
 
+    /* ── السحب في وضع التحرير (Touch) ── */
     ctrlEls.forEach(el => {
         let dragging = false, startX, startY, initL, initT;
 
@@ -821,6 +904,7 @@ function renderSmartControls(gameId, controlsData, container) {
     });
 }
 
+/* ── مساعد: وضع عنصر بنسب مئوية ── */
 function placeEl(el, xPct, yPct, sizePx) {
     el.style.position   = 'absolute';
     el.style.left       = xPct   + '%';
@@ -830,6 +914,7 @@ function placeEl(el, xPct, yPct, sizePx) {
     el.style.pointerEvents = 'auto';
 }
 
+/* ── بناء العصا التناظرية ── */
 function buildAnalogStick(useWasd) {
     const base = document.createElement('div');
     base.className = 'ctrl-joystick-base';
@@ -902,10 +987,12 @@ function buildAnalogStick(useWasd) {
     return base;
 }
 
+/* ── بناء زر أكشن (يرسم الحرف كنص) ── */
 function buildActionBtn(keyName) {
     const btn = document.createElement('button');
     btn.className = 'ctrl-action-btn';
 
+    // تحويل الأسماء الطويلة لاختصار مقروء
     const LABELS = { 'SPACE':'SPC','UP':'▲','DOWN':'▼','LEFT':'◄','RIGHT':'►' };
     const label  = LABELS[keyName.toUpperCase()] || keyName.toUpperCase().slice(0, 3);
 
@@ -944,16 +1031,9 @@ function buildActionBtn(keyName) {
     return btn;
 }
 
-function loadRuffleScript() {
-    return new Promise((resolve) => {
-        if (window.RufflePlayer) return resolve();
-        const script = document.createElement('script');
-        script.src = "https://unpkg.com/@ruffle-rs/ruffle";
-        script.onload = resolve;
-        document.head.appendChild(script);
-    });
-}
-
+/* =============================================
+   GAME PLAYER
+   ============================================= */
 function openGame(game) {
     const player   = document.getElementById('game-player');
     const canvas   = document.getElementById('game-canvas');
@@ -968,15 +1048,16 @@ function openGame(game) {
     player.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
 
+    // ── منع تمدد Flash خارج الحدود ──
     canvas.style.overflow   = 'hidden';
     canvas.style.position   = 'relative';
-    canvas.style.contain    = 'strict';   
+    canvas.style.contain    = 'strict';   // يمنع أي رسم خارج الـ canvas
     player.style.overflow   = 'hidden';
 
     const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
     let launched = false;
 
-    const launchGame = async () => {
+    const launchGame = () => {
         if (launched) return;
         launched = true;
         overlay.style.display = 'none';
@@ -988,10 +1069,11 @@ function openGame(game) {
         }
 
         if (game.type === 'swf') {
-            await loadRuffleScript();
+            window.RufflePlayer = window.RufflePlayer || {};
             const ruffle = window.RufflePlayer.newest();
             if (ruffle) {
                 const p = ruffle.createPlayer();
+                // تأكيد حصر Ruffle داخل الـ canvas فقط
                 p.style.cssText = 'width:100%;height:100%;display:block;overflow:hidden;max-width:100%;max-height:100%;';
                 p.setAttribute('tabindex', '0');
                 canvas.appendChild(p);
@@ -1009,7 +1091,9 @@ function openGame(game) {
             canvas.appendChild(iframe);
         }
 
+        // ── عرض أزرار التحكم بعد تحميل اللعبة ──
         if (isMobile && game.controls) {
+            // تأخير بسيط لضمان ظهور الأزرار فوق اللعبة
             setTimeout(() => {
                 document.getElementById('smart-controls-wrapper')?.remove();
                 renderSmartControls(game.id, game.controls, player);
@@ -1036,6 +1120,9 @@ function openGame(game) {
     };
 }
 
+/* =============================================
+   UI HELPERS
+   ============================================= */
 function initCarousel() {
     const grid = document.getElementById('games-grid');
     const prev = document.getElementById('carousel-prev');
@@ -1095,7 +1182,11 @@ function initFullscreen() {
     });
 }
 
+/* =============================================
+   SEO: JSON-LD + نص مخفي (للـ Firebase-only fallback)
+   ============================================= */
 function injectSEOSchema() {
+    // إذا كان الـ Server Snapshot موجوداً، لا نكرر schema موجودة
     if (window.__serverSnapshot && document.getElementById('server-games-schema')) return;
 
     document.getElementById('games-schema')?.remove();
@@ -1143,5 +1234,6 @@ function injectSEOSchema() {
     document.body.appendChild(seoBlock);
 }
 
+// تصدير للاستخدام الخارجي
 window.openGame = openGame;
 window.renderGames = renderGames;
