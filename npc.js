@@ -1,22 +1,18 @@
 'use strict';
-/* =============================================
-   NOSTAGAMES - NPC Background System v3.0
-   شخصيات تتحرك على أرضية ثابتة - بدون فقاعات كلام
-   ============================================= */
 const NPCSystem = (() => {
     const NW = 20, NH = 26, SPEED = 45;
-    let canvas, ctx, npcs = [], lastTime = 0;
-    let groundY = 0; // سيتم تحديثها حسب ارتفاع الشاشة
+    let canvas, ctx, npcs = [], lastTime = 0, reqId = null, isVisible = false;
+    let groundY = 0;
 
     const PALS = [
-        { body: '#c83020', hair: '#1a1a1a', skin: '#f0a060' }, // شرطي أحمر
-        { body: '#2060c0', hair: '#8b4513', skin: '#f0d0b0' }, // أزرق
-        { body: '#208040', hair: '#1a1a1a', skin: '#d4956a' }, // أخضر
-        { body: '#806020', hair: '#2a1a0a', skin: '#f0c090' }, // بني
-        { body: '#602080', hair: '#c060f0', skin: '#f0d0b0' }, // بنفسجي
-        { body: '#208080', hair: '#1a1a1a', skin: '#e0b090' }, // سماوي
-        { body: '#c06020', hair: '#1a1a1a', skin: '#d4956a' }, // برتقالي
-        { body: '#404040', hair: '#888',   skin: '#c8a080' }, // رمادي
+        { body: '#c83020', hair: '#1a1a1a', skin: '#f0a060' },
+        { body: '#2060c0', hair: '#8b4513', skin: '#f0d0b0' },
+        { body: '#208040', hair: '#1a1a1a', skin: '#d4956a' },
+        { body: '#806020', hair: '#2a1a0a', skin: '#f0c090' },
+        { body: '#602080', hair: '#c060f0', skin: '#f0d0b0' },
+        { body: '#208080', hair: '#1a1a1a', skin: '#e0b090' },
+        { body: '#c06020', hair: '#1a1a1a', skin: '#d4956a' },
+        { body: '#404040', hair: '#888',   skin: '#c8a080' }
     ];
 
     const ROLES = [
@@ -27,25 +23,36 @@ const NPCSystem = (() => {
         { name: 'talker',  label: '💬',  state: 'talk'    },
         { name: 'wander1', label: '🚶',  state: 'wander'  },
         { name: 'wander2', label: '🚶',  state: 'wander'  },
-        { name: 'hidden',  label: '👻',  state: 'hidden'  },
+        { name: 'hidden',  label: '👻',  state: 'hidden'  }
     ];
 
     function init() {
         canvas = document.getElementById('npc-canvas');
         if (!canvas) return;
-        ctx = canvas.getContext('2d');
+        ctx = canvas.getContext('2d', { alpha: true });
         _resize();
         window.addEventListener('resize', _resize);
         npcs = ROLES.map((role, i) => _mkNPC(role, PALS[i % PALS.length]));
-        requestAnimationFrame(_loop);
+
+        const observer = new IntersectionObserver((entries) => {
+            isVisible = entries[0].isIntersecting;
+            if (isVisible) {
+                lastTime = performance.now();
+                if (!reqId) _loop(lastTime);
+            } else {
+                if (reqId) {
+                    cancelAnimationFrame(reqId);
+                    reqId = null;
+                }
+            }
+        });
+        observer.observe(canvas);
     }
 
     function _resize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-        // الأرضية: 85% من ارتفاع الشاشة (أسفل الصفحة تقريباً)
         groundY = canvas.height * 0.85;
-        // تحديث y لجميع الشخصيات لتكون فوق الأرضية مباشرة
         for (const n of npcs) {
             n.y = groundY - NH / 2;
             n.ty = n.y;
@@ -58,30 +65,27 @@ const NPCSystem = (() => {
         return {
             x, y, pal, role,
             dir: ['down', 'up', 'left', 'right'][Math.floor(Math.random() * 4)],
-            frame: 0, ft: 0,
-            tx: x, ty: y,
+            frame: 0, ft: 0, tx: x, ty: y,
             waiting: true, wt: Math.random() * 2,
-            danceT: 0, danceFrame: 0,
-            sleepT: 0,
+            danceT: 0, danceFrame: 0, sleepT: 0,
             scale: role.state === 'run' ? 1.2 : 1,
             opacity: role.state === 'hidden' ? 0 : 0.85,
             visible: role.state !== 'hidden',
-            chaseTarget: null,
+            chaseTarget: null
         };
     }
 
     function _loop(ts) {
+        if (!isVisible) return;
         const delta = Math.min((ts - lastTime) / 1000, 0.05);
         lastTime = ts;
         _update(delta);
         _draw();
-        requestAnimationFrame(_loop);
+        reqId = requestAnimationFrame(_loop);
     }
 
     function _update(delta) {
         const runner = npcs.find(n => n.role.state === 'run');
-        const cop = npcs.find(n => n.role.name === 'cop');
-
         for (const n of npcs) {
             if (!n.visible) continue;
             switch (n.role.state) {
@@ -90,9 +94,8 @@ const NPCSystem = (() => {
                 case 'patrol': _doPatrol(n, delta, runner); break;
                 case 'dance':  _doDance(n, delta); break;
                 case 'sleep':  _doSleep(n, delta); break;
-                case 'talk':   _doTalk(n, delta); break;
+                case 'talk':   _doWander(n, delta, SPEED * 0.4); break;
             }
-            // منع الشخصيات من الخروج عن الأرضية عمودياً
             n.y = Math.min(Math.max(n.y, groundY - NH / 2 - 2), groundY - NH / 2 + 4);
             n.ty = Math.min(Math.max(n.ty, groundY - NH / 2 - 2), groundY - NH / 2 + 4);
         }
@@ -152,20 +155,13 @@ const NPCSystem = (() => {
         n.frame = 0;
     }
 
-    function _doTalk(n, delta) {
-        // بدون فقاعات كلام، فقط يتحرك كالمتجول
-        _doWander(n, delta, SPEED * 0.4);
-    }
-
     function _pickTarget(n) {
         n.tx = 60 + Math.random() * (window.innerWidth - 120);
         n.ty = groundY - NH / 2 + (Math.random() * 6 - 3);
     }
 
-    /* ===== DRAW ===== */
     function _draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        // رسم الأرضية (خط سميك أو شريط ترابي)
         ctx.fillStyle = '#2c1e0f';
         ctx.fillRect(0, groundY - 4, canvas.width, 6);
         ctx.fillStyle = '#5a3a1a';
@@ -190,7 +186,6 @@ const NPCSystem = (() => {
         ctx.scale(s, s);
         ctx.translate(-NW / 2, -NH / 2);
 
-        // ظل
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
         ctx.ellipse(NW / 2, NH + 2, 9, 3, 0, 0, Math.PI * 2);
@@ -204,11 +199,9 @@ const NPCSystem = (() => {
             _drawWalk(ctx, p, dir, frame, n.waiting === false);
         }
 
-        // لافتة الدور فوق الرأس
         ctx.font = '11px serif';
         ctx.fillStyle = '#fff';
         ctx.fillText(role.label, NW / 2 - 6, -4);
-
         ctx.restore();
     }
 
@@ -269,7 +262,6 @@ const NPCSystem = (() => {
         ctx.fillRect(4, 3 + nod, 12, 11);
         ctx.fillStyle = p.hair;
         ctx.fillRect(4, 3 + nod, 12, 4);
-        // رسم zZz صغير بدون فقاعة كلام
         ctx.fillStyle = '#aef';
         ctx.font = 'bold 7px monospace';
         ctx.fillText('z', NW + 2, 8 - Math.sin(t) * 4);
@@ -287,7 +279,6 @@ const NPCSystem = (() => {
         ctx.fillRect(11 + ox, 5 + oy, 2, 2);
     }
 
-    /* ===== PUBLIC API (بدون فقاعات) ===== */
     function onGameClick(cardEl) {
         const hidden = npcs.find(n => n.role.name === 'hidden');
         if (!hidden || !cardEl) return;
@@ -300,10 +291,7 @@ const NPCSystem = (() => {
         setTimeout(() => { hidden.visible = false; }, 4000);
     }
 
-    function onDownloadClick() {
-        // بدون فقاعة كلام – يمكن تجاهل أو تركها فارغة
-        // console.log("تم النقر على تحميل التطبيق");
-    }
+    function onDownloadClick() {}
 
     return { init, onGameClick, onDownloadClick };
 })();
