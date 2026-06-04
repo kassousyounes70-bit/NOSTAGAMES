@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="google-site-verification" content="aUuyLNet6F4MXOymwOkeHYAqGmAyOejc4ykxEDW1N2I" />
+    <meta name="google-site-verification" content="aUuyLNet6F4MXOymwOkeHYAqGmAyOejc4ykxEDW1N2I">
     
     <title>NostGames - منصة وتطبيق ألعاب فلاش (Flash) القديمة والكلاسيكية</title>
     <meta name="description" content="NostGames هي منصتك المجانية للعب ألعاب فلاش (Flash) القديمة والكلاسيكية. استمتع بألعاب الطفولة مثل Fireboy and Watergirl، Papa's Games، Hobo، Jacksmith وغيرها مباشرة على متصفحك أو عبر تطبيق الأندرويد.">
@@ -38,13 +38,15 @@
     }
     </script>
 
-    <!-- ⚡ BUILD_INJECTION_POINT: server-games-db (injected by build.js) -->
-    <!-- ⚡ BUILD_INJECTION_POINT: server-games-schema (injected by build.js) -->
+    <link rel="preload" href="images/icon.png" as="image" fetchpriority="high">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
     <link rel="icon" type="image/png" href="images/icon.png">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
 
     <style class="adBanner" id="adStyleBait">.adBanner-check{display:block;height:1px;}</style>
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8579682743838923" crossorigin="anonymous"></script>
@@ -59,7 +61,7 @@
         }, 'google_translate_element');
     }
     </script>
-    <script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+    <script defer src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 </head>
 <body>
 
@@ -101,7 +103,7 @@
 
         <div class="app-banner" id="app-banner">
             <div class="app-banner-content">
-                <img src="images/icon.png" alt="NostGames" class="banner-icon" onerror="this.style.display='none'">
+                <img src="images/icon.png" alt="NostGames" class="banner-icon" width="64" height="64" onerror="this.style.display='none'">
                 <div class="banner-text">
                     <strong>📱 تطبيق <span class="notranslate">NostGames</span> للأندرويد متاح الآن!</strong>
                     <span>العب بدون إنترنت · تحكم لمسي · مجاني 100%</span>
@@ -115,7 +117,7 @@
 
         <header class="hero-section">
             <div class="hero-content">
-                <img src="images/icon.png" alt="NostGames Logo" class="hero-logo" onerror="this.style.display='none'">
+                <img src="images/icon.png" alt="NostGames Logo" class="hero-logo" fetchpriority="high" width="193" height="193" onerror="this.style.display='none'">
                 <div class="hero-text">
                     <h1 class="glitch-title" data-text="NOSTAGAMES"><span class="notranslate">NOSTAGAMES</span></h1>
                     <p class="hero-tagline">⚡ عصر الفلاش الذهبي عاد! ⚡</p>
@@ -146,7 +148,6 @@
                     <button id="carousel-prev" class="carousel-btn" aria-label="السابق">&#9664;</button>
                     <button id="carousel-next" class="carousel-btn" aria-label="التالي">&#9654;</button>
                 </div>
-                <!-- ⚡ BUILD_INJECTION_POINT: games-grid (injected by build.js) -->
                 <div id="games-grid" class="games-grid"></div>
             </section>
             <aside class="ad-slot ad-sidebar-right"><span class="ad-label">إعلان</span></aside>
@@ -231,11 +232,10 @@
 
     <button id="back-to-top" class="back-to-top" style="display: none;"><i class="fa-solid fa-arrow-up"></i></button>
 
-    <script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
-    <script src="npc.js"></script>
+    <script defer src="npc.js"></script>
     <script type="module" src="main.js"></script>
     <script>
-        (function matrixBg() {
+        document.addEventListener('DOMContentLoaded', () => {
             const canvas = document.getElementById('matrix-canvas');
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
@@ -261,16 +261,16 @@
                 requestAnimationFrame(draw);
             }
             draw();
-        })();
 
-        const aboutLink = document.getElementById('about-us-link');
-        const aboutOverlay = document.getElementById('about-overlay');
-        const aboutClose = document.querySelector('.about-close');
-        if (aboutLink && aboutOverlay) {
-            aboutLink.addEventListener('click', (e) => { e.preventDefault(); aboutOverlay.classList.remove('hidden'); });
-            if (aboutClose) aboutClose.addEventListener('click', () => aboutOverlay.classList.add('hidden'));
-            aboutOverlay.addEventListener('click', (e) => { if (e.target === aboutOverlay) aboutOverlay.classList.add('hidden'); });
-        }
+            const aboutLink = document.getElementById('about-us-link');
+            const aboutOverlay = document.getElementById('about-overlay');
+            const aboutClose = document.querySelector('.about-close');
+            if (aboutLink && aboutOverlay) {
+                aboutLink.addEventListener('click', (e) => { e.preventDefault(); aboutOverlay.classList.remove('hidden'); });
+                if (aboutClose) aboutClose.addEventListener('click', () => aboutOverlay.classList.add('hidden'));
+                aboutOverlay.addEventListener('click', (e) => { if (e.target === aboutOverlay) aboutOverlay.classList.add('hidden'); });
+            }
+        });
     </script>
 </body>
 </html>
